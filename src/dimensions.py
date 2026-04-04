@@ -180,6 +180,7 @@ def build_customer_dimension(
         .reset_index()
         .rename(columns={"customer_id_norm": "customer_id"})
     )
+    revenue_agg["total_revenue"] = revenue_agg["total_revenue"].round(2)
     revenue_agg["avg_order_value"] = (
         revenue_agg["total_revenue"] / revenue_agg["order_count"].replace(0, np.nan)
     ).round(2)

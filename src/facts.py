@@ -49,6 +49,10 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     fact["is_uk"] = fact["country_norm"].eq("United Kingdom")
 
+    # Округление денежных полей — убираем float-хвосты для BI
+    fact["unit_price"] = fact["unit_price"].round(2)
+    fact["line_amount"] = fact["line_amount"].round(2)
+
     # Единое имя FK для связи с dim_country.country_name
     fact = fact.rename(columns={"country_norm": "country_name"})
 
@@ -68,6 +72,7 @@ def _add_invoice_aggregates(fact: pd.DataFrame) -> pd.DataFrame:
             invoice_item_count=("invoice_id", "size"),
         )
     )
+    inv_agg["invoice_total"] = inv_agg["invoice_total"].round(2)
     return fact.merge(inv_agg, on="invoice_id", how="left")
 
 
