@@ -35,12 +35,14 @@ def build_reconciliation_table(
     raw_df: pd.DataFrame,
     audited_df: pd.DataFrame,
     fact_tables: dict[str, pd.DataFrame],
+    rnd_filtered_count: int = 0,
 ) -> pd.DataFrame:
-    """Контрольная сверка строк: raw → deduped → (sales + returns + service)."""
+    """Контрольная сверка строк: raw → rnd_filter → deduped → (sales + returns + service)."""
     deduped = audited_df.loc[~audited_df["is_duplicate"]]
     return pd.DataFrame(
         [
             {"stage": "raw_rows", "row_count": int(len(raw_df))},
+            {"stage": "after_rnd_filter", "row_count": int(len(raw_df) - rnd_filtered_count)},
             {"stage": "deduped_rows", "row_count": int(len(deduped))},
             {"stage": "fact_sales_lines", "row_count": int(len(fact_tables["fact_sales_lines"]))},
             {"stage": "fact_return_lines", "row_count": int(len(fact_tables["fact_return_lines"]))},
@@ -65,14 +67,17 @@ def build_qa_artifacts(
     audited_df: pd.DataFrame,
     fact_tables: dict[str, pd.DataFrame],
     cfg: PipelineConfig,
+    *,
+    rnd_filtered_df: pd.DataFrame | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
-    """Генерирует 17 QA-таблиц и компактный JSON-summary.
+    """Генерирует QA-таблицы и компактный JSON-summary.
 
     Args:
         raw_df: сырой DataFrame (до нормализации).
         audited_df: аудированный DataFrame (после classify_line_type).
         fact_tables: словарь из ``build_fact_tables``.
         cfg: конфигурация pipeline.
+        rnd_filtered_df: строки, отфильтрованные по ``rnd=True`` (опционально).
 
     Returns:
         Кортеж ``(qa_tables, qa_summary)``:
@@ -97,11 +102,17 @@ def build_qa_artifacts(
         "extreme_rows": build_extreme_rows(raw_df),
         "last_month_summary": build_last_month_summary(raw_df),
         "line_type_summary": build_line_type_summary(audited_df),
-        "raw_processed_reconciliation": build_reconciliation_table(raw_df, audited_df, fact_tables),
+        "raw_processed_reconciliation": build_reconciliation_table(
+            raw_df, audited_df, fact_tables,
+            rnd_filtered_count=int(len(rnd_filtered_df)) if rnd_filtered_df is not None else 0,
+        ),
     }
+    if rnd_filtered_df is not None:
+        qa_tables["rnd_filtered_rows"] = rnd_filtered_df
 
     summary = {
         "raw_row_count": int(len(raw_df)),
+        "rnd_filtered_count": int(len(rnd_filtered_df)) if rnd_filtered_df is not None else 0,
         "deduped_row_count": int((~audited_df["is_duplicate"]).sum()),
         "line_type_counts": {
             str(key): int(value)

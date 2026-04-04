@@ -68,8 +68,14 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     raw_df, source_path = load_retail_data(cfg)
     LOGGER.info("Source rows: %s", len(raw_df))
 
+    LOGGER.info("Filtering rnd=True rows")
+    rnd_mask = raw_df["rnd"].fillna(False).astype(bool)
+    rnd_filtered_df = raw_df.loc[rnd_mask].copy()
+    clean_df = raw_df.loc[~rnd_mask].copy()
+    LOGGER.info("Removed %s rnd rows, %s rows remaining", len(rnd_filtered_df), len(clean_df))
+
     LOGGER.info("Normalizing raw data")
-    normalized_df = apply_normalization(raw_df, cfg)
+    normalized_df = apply_normalization(clean_df, cfg)
 
     LOGGER.info("Classifying rows")
     audited_df = classify_line_type(normalized_df, cfg)
@@ -100,7 +106,9 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     }
 
     LOGGER.info("Building QA artifacts")
-    qa_tables, qa_summary = build_qa_artifacts(raw_df, audited_df, fact_tables, cfg)
+    qa_tables, qa_summary = build_qa_artifacts(
+        raw_df, audited_df, fact_tables, cfg, rnd_filtered_df=rnd_filtered_df,
+    )
 
     LOGGER.info("Exporting processed and QA layers")
     processed_files = export_table_bundle(processed_tables, cfg.processed_dir, cfg)
