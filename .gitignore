@@ -1,0 +1,42 @@
+# Data (too large for git)
+data/raw/
+data/interim/
+data/processed/
+data/qa/
+
+# Reports (generated)
+reports/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Claude config
+.claude/
+
+# Logs
+console_log.txt
+
+# UV lock (reproducible via pyproject.toml)
+uv.lock
+
+# AI agent instructions (not part of project)
+codex_retail_pipeline_instruction_v3_clean.md
+
+# Backup copies
+*- Copy.ipynb
+* - Copy.ipynb
