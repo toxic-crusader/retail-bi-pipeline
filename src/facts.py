@@ -10,24 +10,18 @@ from __future__ import annotations
 import pandas as pd
 
 FACT_COLUMNS = [
-    "raw_record_id",
     "Invoice",
     "InvoiceDate",
     "customer_id_norm",
     "channel_norm",
-    "Country",
     "country_norm",
-    "StockCode",
     "stock_code_norm",
-    "Description",
     "description_norm",
     "product_name_canonical",
     "Quantity",
     "Price",
     "line_amount",
     "line_type",
-    "is_duplicate",
-    "is_business_duplicate",
     "is_service_line",
     "is_anonymous_customer",
 ]
@@ -45,9 +39,6 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
             "InvoiceDate": "invoice_date",
             "customer_id_norm": "customer_id",
             "channel_norm": "channel",
-            "Country": "country_raw",
-            "StockCode": "stock_code_raw",
-            "Description": "description_raw",
             "Quantity": "quantity",
             "Price": "unit_price",
         }
@@ -95,7 +86,7 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
     Returns:
         Словарь ``{имя_таблицы: DataFrame}`` с тремя фактами.
-        Каждый факт содержит 23 колонки (включая ``is_uk``,
+        Каждый факт содержит 18 колонок (включая ``is_uk``,
         ``invoice_total``, ``invoice_item_count``).
     """
     deduped = df.loc[~df["is_duplicate"]].copy()
