@@ -20,9 +20,9 @@
 
 | Лист | Строк | Описание |
 |---|---|---|
-| fact_sales_lines | 858 949 | Товарные продажи (24 колонки) |
-| fact_return_lines | 15 976 | Возвраты (24 колонки) |
-| fact_service_lines | 4 839 | Сервисные операции: доставка, скидки, комиссии (24 колонки) |
+| fact_sales_lines | 858 949 | Товарные продажи (17 колонок) |
+| fact_return_lines | 15 976 | Возвраты (17 колонок) |
+| fact_service_lines | 4 839 | Сервисные операции: доставка, скидки, комиссии (17 колонок) |
 | dim_product | 4 710 | Справочник товаров: категория, каноническое имя, флаг сервисного кода |
 | dim_customer | 5 691 | Справочник клиентов: tier (Top/Medium/Low/Anonymous), выручка, ср.чек |
 | dim_date | 696 | Календарь: год, квартал, месяц, year_month, флаг неполного месяца |
@@ -38,7 +38,7 @@ dim_customer ─── customer_id ────────┤
 dim_country ──── country_name ───────┤
                                      │
 dim_date ─────── date = invoice_ ────┘
-                        date_day
+                        date
 ```
 
 | Факт (FK) | Измерение (PK) | Примечание |
@@ -46,7 +46,7 @@ dim_date ─────── date = invoice_ ────┘
 | `stock_code_norm` | `dim_product.stock_code_norm` | Имена совпадают |
 | `customer_id` | `dim_customer.customer_id` | Имена совпадают |
 | `country_name` | `dim_country.country_name` | Имена совпадают |
-| `invoice_date_day` | `dim_date.date` | **Имена отличаются!** |
+| `invoice_date` | `dim_date.date` | Имена отличаются, тип date у обоих |
 
 ## План дашборда (2 страницы)
 
