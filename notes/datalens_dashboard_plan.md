@@ -21,7 +21,7 @@ Excel-workbook `data/processed/retail_datalens_export.xlsx` — 7 листов:
 | `stock_code_norm` | `dim_product.stock_code_norm` |
 | `customer_id` | `dim_customer.customer_id` |
 | `country_name` | `dim_country.country_name` |
-| `invoice_date_day` | `dim_date.date` |
+| `invoice_date` | `dim_date.date` |
 
 ---
 
