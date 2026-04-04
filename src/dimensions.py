@@ -88,6 +88,10 @@ def build_product_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFra
     )
     product_dim.loc[product_dim["is_service_code"], "product_category"] = "Service / Non-product"
 
+    # Даты без времени
+    for col in ["first_seen_date", "last_seen_date"]:
+        product_dim[col] = product_dim[col].dt.date
+
     return product_dim.sort_values("stock_code_norm").reset_index(drop=True)
 
 
@@ -221,7 +225,11 @@ def build_customer_dimension(
             }
         ]
     )
-    return pd.concat([customer_dim, anonymous], ignore_index=True)
+    result = pd.concat([customer_dim, anonymous], ignore_index=True)
+    # Даты без времени
+    for col in ["first_invoice_date", "last_invoice_date"]:
+        result[col] = pd.to_datetime(result[col]).dt.date
+    return result
 
 
 def _assign_customer_tier(revenue: pd.Series) -> pd.Series:
@@ -261,6 +269,11 @@ def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
     calendar["is_last_incomplete_month"] = calendar["year_month"].eq(
         str(max_date.to_period("M"))
     ) & (max_date != last_month_end)
+
+    # Приводим к date (без времени) для единообразия с fact.invoice_date
+    calendar["date"] = calendar["date"].dt.date
+    calendar["month_start"] = calendar["month_start"].dt.date
+
     return calendar
 
 

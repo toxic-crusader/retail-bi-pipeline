@@ -44,10 +44,10 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
         }
     )
 
-    fact["is_uk"] = fact["country_norm"].eq("United Kingdom")
+    # Дата без времени — в источнике время всегда 00:00:00
+    fact["invoice_date"] = fact["invoice_date"].dt.date
 
-    # Дневной ключ для связи с dim_date в DataLens
-    fact["invoice_date_day"] = fact["invoice_date"].dt.normalize()
+    fact["is_uk"] = fact["country_norm"].eq("United Kingdom")
 
     # Единое имя FK для связи с dim_country.country_name
     fact = fact.rename(columns={"country_norm": "country_name"})
@@ -86,7 +86,7 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
     Returns:
         Словарь ``{имя_таблицы: DataFrame}`` с тремя фактами.
-        Каждый факт содержит 18 колонок (включая ``is_uk``,
+        Каждый факт содержит 17 колонок (включая ``is_uk``,
         ``invoice_total``, ``invoice_item_count``).
     """
     deduped = df.loc[~df["is_duplicate"]].copy()
