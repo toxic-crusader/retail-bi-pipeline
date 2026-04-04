@@ -1,4 +1,10 @@
-# File: src/facts.py
+"""Построение факт-таблиц: продажи, в��звраты, сервисные строки.
+
+Модуль разделяет аудированный слой на три факта по ``line_type``,
+переименовывает колонки в BI-совместимый формат и добавляет
+предрассчитанные агрегаты на уровне инвойса.
+"""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -28,10 +34,9 @@ FACT_COLUMNS = [
 
 
 def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Приводит рабочий слой к единой схеме факт-таблиц.
+    """Выбирает нужные колонки и переименовывает их в BI-формат.
 
-    На этом этапе выбираются только нужные столбцы и выполняется
-    переименование в более читаемый BI-совместимый формат.
+    Добавляет ``is_uk`` как быстрый фильтр UK vs International.
     """
     fact = df[FACT_COLUMNS].copy()
     fact = fact.rename(
@@ -54,7 +59,11 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_invoice_aggregates(fact: pd.DataFrame) -> pd.DataFrame:
-    """Добавляет предрассчитанные агрегаты на уровне инвойса."""
+    """Добавляет ``invoice_total`` и ``invoice_item_count`` через группировку.
+
+    Эти метрики нужны для анализа среднего чека в DataLens без
+    LOD-выражений — значения предрассчитаны на каждой строке.
+    """
     inv_agg = (
         fact.groupby("invoice_id", dropna=False)
         .agg(
@@ -66,10 +75,22 @@ def _add_invoice_aggregates(fact: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Строит три итоговые факт-таблицы: продажи, возвраты и сервисные строки.
+    """Строит три факт-таблицы из аудир��ванного слоя.
 
-    Перед разделением удаляются полные дубликаты, затем строки
-    распределяются по фактам в соответствии с вычисленным `line_type`.
+    Перед разделением снимаются полные дубликаты (``is_duplicate``).
+    Строки распределяются по ``line_type``:
+
+    - ``fact_sales_lines`` — line_type = ``sale``.
+    - ``fact_return_lines`` — line_type = ``return``.
+    - ``fact_service_lines`` — всё остальное (shipping, discount, bad_debt и др.).
+
+    Args:
+        df: ��удированный DataFrame с колонками ``is_duplicate`` и ``line_type``.
+
+    Returns:
+        Словарь ``{имя_таблицы: DataFrame}`` с тремя фактами.
+        Каждый факт содержит 23 колонки (включая ``is_uk``,
+        ``invoice_total``, ``invoice_item_count``).
     """
     deduped = df.loc[~df["is_duplicate"]].copy()
     fact = _prepare_fact_frame(deduped)

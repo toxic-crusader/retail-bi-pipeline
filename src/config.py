@@ -1,3 +1,5 @@
+"""Централизованная конфигурация pipeline: пути, бизнес-правила, справочники."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,12 +10,10 @@ from .utils import resolve_project_root
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    """Хранит централизованные настройки retail-пайплайна.
+    """Настройки retail-пайплайна: пути проекта, имена файлов, бизнес-правила.
 
-    В объекте собраны пути проекта, имена исходных файлов и наборы
-    бизнес-правил, которые используются в нормализации, классификации
-    строк и построении витрин. Конфиг намеренно сделан простым и
-    декларативным, чтобы его было легко читать и переиспользовать.
+    Все параметры — декларативные константы. Код трансформации ссылается
+    на них через ``cfg``, не хардкодя значения внутри модулей.
     """
 
     project_root: Path = field(default_factory=resolve_project_root)
@@ -23,91 +23,77 @@ class PipelineConfig:
     export_excel: bool = True
     datalens_workbook_name: str = "retail_datalens_export.xlsx"
 
+    # --- Пути проекта ---------------------------------------------------
+
     @property
     def data_dir(self) -> Path:
-        """Возвращает корневую директорию для всех слоёв данных проекта."""
         return self.project_root / "data"
 
     @property
     def raw_dir(self) -> Path:
-        """Возвращает каталог с сырыми входными данными."""
         return self.data_dir / "raw"
 
     @property
     def interim_dir(self) -> Path:
-        """Возвращает каталог для промежуточных таблиц и аудированного слоя."""
         return self.data_dir / "interim"
 
     @property
     def processed_dir(self) -> Path:
-        """Возвращает каталог для итоговых BI-витрин."""
         return self.data_dir / "processed"
 
     @property
     def datalens_workbook_path(self) -> Path:
-        """Returns the path to the Excel workbook for Yandex DataLens."""
         return self.processed_dir / self.datalens_workbook_name
 
     @property
     def qa_dir(self) -> Path:
-        """Возвращает каталог для QA-таблиц и контрольных сводок."""
         return self.data_dir / "qa"
 
     @property
     def notebooks_dir(self) -> Path:
-        """Возвращает каталог для notebook-артефактов проекта."""
         return self.project_root / "notebooks"
 
     @property
     def reports_dir(self) -> Path:
-        """Возвращает каталог для JSON-сводок и прочих служебных отчётов."""
         return self.project_root / "reports"
 
     @property
     def source_candidates(self) -> tuple[Path, ...]:
-        """Возвращает допустимые расположения исходного файла `Retail.xlsx`.
-
-        Порядок важен: сначала проверяется рекомендованный путь в raw-слое,
-        затем совместимый вариант с размещением файла в корне проекта.
-        """
+        """Допустимые расположения исходного файла (raw-слой, затем корень)."""
         return (
             self.raw_dir / self.source_file_name,
             self.project_root / self.source_file_name,
         )
 
+    # --- Коды служебных строк -------------------------------------------
+
     @property
     def shipping_codes(self) -> frozenset[str]:
-        """Возвращает коды строк, относящихся к доставке и почтовым расходам."""
         return frozenset({"POST", "DOT"})
 
     @property
     def discount_codes(self) -> frozenset[str]:
-        """Возвращает коды строк, которые интерпретируются как скидки."""
         return frozenset({"D"})
 
     @property
     def manual_adjustment_codes(self) -> frozenset[str]:
-        """Возвращает коды ручных корректировок и нетоварных служебных движений."""
         return frozenset({"M", "ADJUST", "S"})
 
     @property
     def commission_codes(self) -> frozenset[str]:
-        """Возвращает коды комиссий, сборов и прочих финансовых удержаний."""
         return frozenset({"AMAZONFEE", "CRUK", "BANK CHARGES"})
 
     @property
     def test_codes(self) -> frozenset[str]:
-        """Возвращает коды тестовых строк, которые не должны попадать в товарный контур."""
         return frozenset({"TEST001", "TEST002"})
 
     @property
     def gift_prefix(self) -> str:
-        """Возвращает префикс кодов подарочных сертификатов."""
         return "GIFT_"
 
     @property
     def required_line_types(self) -> tuple[str, ...]:
-        """Возвращает обязательный набор классов `line_type` для итоговой модели."""
+        """Полный набор классов ``line_type``, ожидаемый в итоговой модели."""
         return (
             "sale",
             "return",
@@ -121,14 +107,11 @@ class PipelineConfig:
             "unknown",
         )
 
+    # --- Справочники нормализации ----------------------------------------
+
     @property
     def country_map(self) -> dict[str, str]:
-        """Возвращает словарь нормализации нестандартизованных стран.
-
-        Словарь применяется после базовой текстовой очистки и переводит
-        специальные или нестандартные значения в канонический вид,
-        пригодный для BI-измерения стран.
-        """
+        """Нестандартные названия стран → канонические (применяется после trim/upper)."""
         return {
             "EIRE": "Ireland",
             "USA": "United States",
@@ -139,7 +122,7 @@ class PipelineConfig:
 
     @property
     def country_region_map(self) -> dict[str, str]:
-        """Возвращает маппинг нормализованных стран к географическим регионам."""
+        """Нормализованная страна → географический регион для dim_country."""
         return {
             "United Kingdom": "UK",
             "France": "Western Europe",
@@ -188,7 +171,7 @@ class PipelineConfig:
 
     @property
     def product_category_keywords(self) -> dict[str, list[str]]:
-        """Возвращает маппинг категорий товаров к ключевым словам в описании."""
+        """Категория товара → список ключевых слов для классификации по описанию."""
         return {
             "Christmas & Seasonal": [
                 "CHRISTMAS", "XMAS", "ADVENT", "SANTA", "SNOWMAN",
@@ -235,24 +218,19 @@ class PipelineConfig:
             ],
         }
 
+    # --- Метки и ключи ---------------------------------------------------
+
     @property
     def anonymous_customer_label(self) -> str:
-        """Возвращает каноническую метку для анонимных покупателей."""
         return "ANONYMOUS"
 
     @property
     def unknown_channel_label(self) -> str:
-        """Возвращает каноническую метку для неизвестного канала."""
         return "UNKNOWN"
 
     @property
     def business_key_columns(self) -> tuple[str, ...]:
-        """Возвращает набор колонок для поиска дубликатов по бизнес-ключу.
-
-        Это не технический идентификатор строки, а комбинация полей,
-        которая должна совпадать у бизнес-дубликатов одной и той же
-        транзакционной записи.
-        """
+        """Набор полей для поиска дубликатов по бизнес-ключу (не по всей строке)."""
         return (
             "Invoice",
             "StockCode",

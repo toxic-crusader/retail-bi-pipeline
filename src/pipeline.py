@@ -1,3 +1,10 @@
+"""Оркестратор: запуск полного audit-first pipeline одной командой.
+
+Модуль связывает все шаги проекта — от чтения ``Retail.xlsx`` до записи
+Excel-workbook с витринами для DataLens. Может запускаться как CLI-скрипт
+(``python -m src.pipeline``) или вызываться программно из notebook.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -44,9 +51,15 @@ def configure_logging() -> None:
 def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     """Выполняет полный audit-first pipeline от загрузки до экспорта витрин.
 
-    Функция оркестрирует все шаги проекта: подготовку директорий,
-    чтение источника, нормализацию, классификацию, построение измерений
-    и фактов, генерацию QA-таблиц и запись всех артефактов на диск.
+    Последовательность: подготовка директорий → чтение источника →
+    нормализация → классификация → измерения → факты → QA → экспорт.
+
+    Args:
+        cfg: конфигурация pipeline. Если ``None``, используются значения
+            по умолчанию из ``PipelineConfig()``.
+
+    Returns:
+        ``PipelineRunResult`` с путями ко всем экспортированным артефактам.
     """
     cfg = cfg or PipelineConfig()
     prepare_project_dirs(cfg)

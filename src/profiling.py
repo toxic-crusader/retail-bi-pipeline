@@ -1,3 +1,10 @@
+"""Профилирование и поиск аномалий в сырых данных.
+
+Функции этого модуля используются в notebook для пошагового аудита:
+каждая возвращает DataFrame с конкретным срезом проблемных строк
+или сводку по определённому аспекту качества данных.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -8,11 +15,7 @@ from .config import PipelineConfig
 
 
 def build_basic_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Строит базовый профиль исходного набора данных.
-
-    В профиль входят размер таблицы, число уникальных инвойсов и клиентов,
-    диапазон дат и проверка временной детализации `InvoiceDate`.
-    """
+    """Сводка по размеру набора, уникальным ключам и временному диапазону."""
     metrics: list[dict[str, Any]] = [
         {"metric": "row_count", "value": int(len(df))},
         {"metric": "column_count", "value": int(df.shape[1])},
@@ -33,7 +36,7 @@ def build_basic_profile(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_missingness_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Считает пропуски по всем колонкам и возвращает итоговую сводку."""
+    """Пропуски по каждой колонке: количество и доля от общего числа строк."""
     missing = df.isna().sum()
     return (
         pd.DataFrame(
@@ -49,24 +52,24 @@ def build_missingness_profile(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def find_exact_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Возвращает все строки, участвующие в полных дубликатах."""
+    """Все строки, участвующие в полных дубликатах (keep=False — обе копии)."""
     return df.loc[df.duplicated(keep=False)].copy()
 
 
 def find_business_duplicates(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Возвращает строки-дубликаты по заданному бизнес-ключу."""
+    """Строки-дубликаты по бизнес-ключу (без учёта ``rnd``)."""
     return df.loc[df.duplicated(subset=list(cfg.business_key_columns), keep=False)].copy()
 
 
 def find_return_candidates(df: pd.DataFrame) -> pd.DataFrame:
-    """Находит кандидатов в возвраты по комбинированному правилу."""
+    """Кандидаты в возвраты: ``Quantity < 0`` или ``Invoice`` начинается с ``C``."""
     invoice = df["Invoice"].astype("string").fillna("").str.upper()
     mask = (df["Quantity"] < 0) | invoice.str.startswith("C")
     return df.loc[mask].copy()
 
 
 def find_bad_debt_candidates(df: pd.DataFrame) -> pd.DataFrame:
-    """Находит строки bad debt и бухгалтерских корректировок."""
+    """Бухгалтерские корректировки: Invoice на ``A``, Price < 0 или StockCode ``B``."""
     invoice = df["Invoice"].astype("string").fillna("").str.upper()
     stock = df["StockCode"].astype("string").fillna("").str.upper().str.strip()
     mask = invoice.str.startswith("A") | (df["Price"] < 0) | stock.eq("B")
@@ -74,12 +77,12 @@ def find_bad_debt_candidates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def find_zero_price_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Возвращает все строки с нулевой ценой."""
+    """Строки с ``Price = 0`` — потенциальные внутренние перемещения и подарки."""
     return df.loc[df["Price"] == 0].copy()
 
 
 def find_service_code_rows(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Отбирает строки с явными нетоварными и служебными кодами."""
+    """Строки с нетоварными кодами (POST, DOT, D, M, AMAZONFEE, B, GIFT, TEST и др.)."""
     stock = df["StockCode"].astype("string").fillna("").str.upper().str.strip()
     service_mask = (
         stock.isin(cfg.shipping_codes)
@@ -95,21 +98,21 @@ def find_service_code_rows(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFram
 
 
 def find_anonymous_transactions(df: pd.DataFrame) -> pd.DataFrame:
-    """Возвращает строки без идентификатора клиента."""
+    """Строки без ``Customer ID`` — анонимный сегмент (22.6% набора)."""
     return df.loc[df["Customer ID"].isna()].copy()
 
 
 def find_missing_description_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Возвращает строки с отсутствующим описанием товара."""
+    """Строки без ``Description`` — транзакции есть, а товарный атрибут пустой."""
     return df.loc[df["Description"].isna()].copy()
 
 
 def build_stock_description_issues(df: pd.DataFrame) -> pd.DataFrame:
-    """Строит сводку конфликтов между кодами товаров и их описаниями.
+    """Сводка конфликтов «код → много описаний» и «описание → много кодов».
 
-    Функция одновременно ищет два класса проблем:
-    один код товара с несколькими описаниями и одно описание с несколькими
-    кодами товара. Эти конфликты важны для построения `DimProduct`.
+    Эти конфликты показывают, почему ``Description`` не годится как ключ
+    для справочника товаров: служебные пометки (DAMAGED, FOUND и др.)
+    привязываются к десяткам разных SKU.
     """
     stock_issue = (
         df.groupby("stock_code_norm", dropna=False)["description_norm"]
@@ -145,7 +148,7 @@ def build_stock_description_issues(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_text_noise_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Строит summary по ключевым признакам текстового шума в raw-слое."""
+    """Масштаб текстового шума: лишние пробелы в описаниях, регистр в кодах."""
     description = df["Description"].astype("string")
     stock_code = df["StockCode"].astype("string")
     return pd.DataFrame(
@@ -167,7 +170,7 @@ def build_text_noise_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_country_mapping_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Возвращает таблицу соответствия сырых и нормализованных стран."""
+    """Таблица ``country_raw → country_norm`` для проверки маппинга стран."""
     return (
         df[["Country", "country_norm"]]
         .drop_duplicates()
@@ -178,11 +181,7 @@ def build_country_mapping_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_extreme_rows(df: pd.DataFrame, *, top_n: int = 20) -> pd.DataFrame:
-    """Собирает экстремальные строки по абсолютным значениям количества и цены.
-
-    Результат нужен для audit-first анализа: он позволяет быстро увидеть,
-    являются ли выбросы ошибкой загрузки, bulk-операцией или корректировкой.
-    """
+    """Top-N строк по абсолютному ``Quantity`` и ``Price`` — для проверки выбросов."""
     with_amount = df.copy()
     with_amount["abs_quantity"] = with_amount["Quantity"].abs()
     with_amount["abs_price"] = with_amount["Price"].abs()
@@ -203,7 +202,7 @@ def build_extreme_rows(df: pd.DataFrame, *, top_n: int = 20) -> pd.DataFrame:
 
 
 def build_last_month_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Проверяет, является ли последний календарный месяц в источнике полным."""
+    """Проверяет полноту последнего месяца (октябрь 2011 обрывается 27-го)."""
     max_date = df["InvoiceDate"].max()
     month_start = max_date.to_period("M").to_timestamp()
     month_end = max_date.to_period("M").end_time.normalize()
@@ -220,7 +219,7 @@ def build_last_month_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_line_type_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """Строит агрегированную сводку по финальной классификации `line_type`."""
+    """Число строк, сумма выручки и количество единиц в разрезе ``line_type``."""
     summary = (
         df.groupby("line_type", dropna=False)
         .agg(

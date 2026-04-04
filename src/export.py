@@ -1,4 +1,5 @@
-# File: src/export.py
+"""Экспорт витрин: parquet/CSV-бандлы, Excel-workbook для DataLens, JSON-сводка."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,7 +41,7 @@ def export_summary(payload: dict[str, Any], path: Path) -> None:
 
 
 def _prepare_frame_for_excel(frame: pd.DataFrame) -> pd.DataFrame:
-    """Prepares a dataframe for safe Excel export."""
+    """Приводит object-колонки к string, чтобы openpyxl не падал на смешанных типах."""
     safe_frame = frame.copy()
     for column in safe_frame.select_dtypes(include=["object"]).columns:
         safe_frame[column] = safe_frame[column].astype("string")
@@ -52,7 +53,22 @@ def export_excel_workbook(
     destination_path: Path,
     cfg: PipelineConfig,
 ) -> str | None:
-    """Exports processed BI tables into one Excel workbook for DataLens."""
+    """Собирает все BI-витрины в один Excel-workbook для загрузки в DataLens.
+
+    Каждая таблица записывается на отдельный лист. Если ``export_excel``
+    выключен в конфигурации — возвращает ``None`` без создания файла.
+
+    Args:
+        tables: словарь ``{имя_листа: DataFrame}`` с измерениями и фактами.
+        destination_path: путь к выходному ``.xlsx`` файлу.
+        cfg: конфигурация pipeline.
+
+    Returns:
+        Абсолютный путь к созданному workbook или ``None``.
+
+    Raises:
+        ValueError: если таблица превышает лимит строк Excel (1 048 576).
+    """
     if not cfg.export_excel:
         return None
 

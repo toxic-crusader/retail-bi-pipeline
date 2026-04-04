@@ -1,3 +1,5 @@
+"""Ввод-вывод: чтение Excel-источника, сохранение parquet/csv/json."""
+
 from __future__ import annotations
 
 import json
@@ -11,11 +13,7 @@ from .utils import ensure_directory
 
 
 def prepare_project_dirs(cfg: PipelineConfig) -> None:
-    """Создаёт все рабочие каталоги проекта, если они ещё не существуют.
-
-    Функция вызывается в начале пайплайна, чтобы все последующие шаги
-    могли безопасно записывать файлы в raw/interim/processed/qa/reports.
-    """
+    """Создаёт структуру каталогов проекта (raw, interim, processed, qa, reports)."""
     for path in (
         cfg.raw_dir,
         cfg.interim_dir,
@@ -28,11 +26,7 @@ def prepare_project_dirs(cfg: PipelineConfig) -> None:
 
 
 def find_source_file(cfg: PipelineConfig) -> Path:
-    """Находит исходный файл `Retail.xlsx` по списку допустимых путей.
-
-    Если файл отсутствует во всех ожидаемых местах, выбрасывается
-    `FileNotFoundError` с подсказкой, куда его нужно положить.
-    """
+    """Ищет ``Retail.xlsx`` в допустимых путях; кидает FileNotFoundError если нет."""
     for candidate in cfg.source_candidates:
         if candidate.exists():
             return candidate
@@ -43,11 +37,11 @@ def find_source_file(cfg: PipelineConfig) -> Path:
 
 
 def load_retail_data(cfg: PipelineConfig) -> tuple[pd.DataFrame, Path]:
-    """Читает Excel-источник и приводит базовые типы колонок.
+    """Читает ``Retail.xlsx`` и приводит типы (datetime, Int64, boolean).
 
-    Помимо загрузки листа функция приводит даты, числовые поля и
-    технический признак `rnd` к совместимым типам pandas, чтобы
-    последующие шаги пайплайна работали детерминированно.
+    Returns:
+        Кортеж ``(df, source_path)`` — DataFrame с 10 колонками
+        и абсолютный путь к прочитанному файлу.
     """
     source_path = find_source_file(cfg)
     df = pd.read_excel(
@@ -75,11 +69,10 @@ def load_retail_data(cfg: PipelineConfig) -> tuple[pd.DataFrame, Path]:
 
 
 def save_dataframe(df: pd.DataFrame, path: Path, *, export_csv: bool = False) -> None:
-    """Сохраняет таблицу в parquet и, опционально, в CSV.
+    """Сохраняет DataFrame в parquet (и опционально CSV).
 
-    Перед записью функция нормализует `object`-колонки в строковый тип,
-    чтобы избежать проблем сериализации при экспорте в parquet через
-    `pyarrow`, особенно на смешанных summary-таблицах.
+    Object-колонки приводятся к string перед записью, чтобы pyarrow
+    не падал на смешанных типах в summary-таблицах.
     """
     ensure_directory(path.parent)
     safe_df = df.copy()
@@ -91,7 +84,7 @@ def save_dataframe(df: pd.DataFrame, path: Path, *, export_csv: bool = False) ->
 
 
 def save_json(payload: Any, path: Path) -> None:
-    """Сохраняет произвольный JSON-совместимый объект в UTF-8 файл."""
+    """Записывает JSON-объект в файл (UTF-8, indent=2)."""
     ensure_directory(path.parent)
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),

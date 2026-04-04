@@ -1,4 +1,11 @@
-# File: src/classification.py
+"""Классификация строк по типу операции (``line_type``).
+
+На основе бизнес-флагов (дубликат, возврат, bad debt, сервисный код и др.)
+каждая строка получает один из десяти классов. Приоритет правил зафиксирован:
+сначала отсекаются бухгалтерские и служебные строки, затем возвраты,
+и только оставшиеся с положительным количеством и ценой считаются продажами.
+"""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -7,11 +14,18 @@ from .config import PipelineConfig
 
 
 def apply_business_flags(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Вычисляет набор базовых бизнес-флагов для дальнейшей классификации.
+    """Вычисляет набор bool-флагов для последующей классификации.
 
-    На этом этапе помечаются дубликаты, анонимные строки, кандидаты в
-    возвраты, bad debt, доставку, скидки, ручные корректировки, комиссии,
-    подарочные сертификаты и тестовые записи.
+    Args:
+        df: нормализованный DataFrame (после ``apply_normalization``).
+        cfg: конфигурация с наборами служебных кодов.
+
+    Returns:
+        Копия DataFrame с добавленными колонками: ``is_duplicate``,
+        ``is_business_duplicate``, ``is_anonymous_customer``,
+        ``is_return_candidate``, ``is_bad_debt``, ``is_shipping``,
+        ``is_discount``, ``is_manual_adjustment``, ``is_commission_fee``,
+        ``is_gift_voucher``, ``is_test``.
     """
     out = df.copy()
     invoice = out["Invoice"].astype("string").fillna("").str.strip().str.upper()
@@ -51,12 +65,19 @@ def apply_business_flags(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
 
 
 def classify_line_type(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Присваивает каждой строке итоговый класс `line_type`.
+    """Присваивает каждой строке итоговый класс ``line_type``.
 
-    Классификация выполняется по приоритетным правилам: сначала bad debt
-    и сервисные строки, затем возвраты, и только после этого обычные
-    товарные продажи. В результате формируются `line_type` и агрегирующий
-    флаг `is_service_line`.
+    Порядок приоритета (первый сработавший побеждает):
+    bad_debt → shipping → discount → commission_fee → manual_adjustment →
+    gift_voucher → test → return → sale → unknown.
+
+    Args:
+        df: нормализованный DataFrame (после ``apply_normalization``).
+        cfg: конфигурация pipeline.
+
+    Returns:
+        DataFrame с добавленными колонками ``line_type`` (string)
+        и ``is_service_line`` (bool — True для всего, кроме sale/return).
     """
     out = apply_business_flags(df, cfg)
     line_type = pd.Series("unknown", index=out.index, dtype="string")

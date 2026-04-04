@@ -1,3 +1,9 @@
+"""Генерация QA-артефактов: контрольные таблицы и числовая сводка.
+
+Модуль собирает 17 аудитных таблиц (дубликаты, возвраты, экстремумы,
+пропуски и т.д.) и компактный JSON-summary для автоматизированной проверки.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -30,12 +36,7 @@ def build_reconciliation_table(
     audited_df: pd.DataFrame,
     fact_tables: dict[str, pd.DataFrame],
 ) -> pd.DataFrame:
-    """Строит контрольную сверку между raw-, audited- и fact-слоями.
-
-    Сводка помогает быстро проверить, что число строк после дедупликации
-    и распределения по финальным фактам согласовано и не теряется
-    неожиданным образом.
-    """
+    """Контрольная сверка строк: raw → deduped → (sales + returns + service)."""
     deduped = audited_df.loc[~audited_df["is_duplicate"]]
     return pd.DataFrame(
         [
@@ -65,10 +66,19 @@ def build_qa_artifacts(
     fact_tables: dict[str, pd.DataFrame],
     cfg: PipelineConfig,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, Any]]:
-    """Генерирует полный набор QA-таблиц и компактную JSON-сводку.
+    """Генерирует 17 QA-таблиц и компактный JSON-summary.
 
-    Возвращает словарь детальных QA-артефактов для сохранения на диск и
-    короткий summary, который затем попадает в итоговый отчёт о запуске.
+    Args:
+        raw_df: сырой DataFrame (до нормализации).
+        audited_df: аудированный DataFrame (после classify_line_type).
+        fact_tables: словарь из ``build_fact_tables``.
+        cfg: конфигурация pipeline.
+
+    Returns:
+        Кортеж ``(qa_tables, qa_summary)``:
+        - ``qa_tables`` — словарь ``{имя: DataFrame}`` для экспорта в parquet/csv.
+        - ``qa_summary`` — компактный dict для JSON-отчёта (строки по слоям,
+          распределение по line_type, число строк в каждом факте).
     """
     qa_tables = {
         "raw_profile": build_basic_profile(raw_df),

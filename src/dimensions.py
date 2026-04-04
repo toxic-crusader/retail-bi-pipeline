@@ -1,4 +1,10 @@
-# File: src/dimensions.py
+"""Построение BI-измерений: товары, клиенты, даты, страны.
+
+Каждая ``build_*`` функция принимает аудированный DataFrame и возвращает
+готовое измерение для звёздной схемы. Измерения экспортируются
+как отдельные листы Excel-workbook для загрузки в Yandex DataLens.
+"""
+
 from __future__ import annotations
 
 import re
@@ -10,11 +16,20 @@ from .config import PipelineConfig
 
 
 def build_product_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Строит измерение товаров с каноническим названием и категорией для каждого SKU.
+    """Строит измерение товаров: каноническое имя, категория, флаг сервисного кода.
 
-    Каноническое имя выбирается по наиболее частому валидному описанию,
-    приоритетно среди товарных продаж и возвратов. Категория определяется
-    по ключевым словам в каноническом имени.
+    Каноническое имя выбирается как самое частое валидное описание среди
+    продаж и возвратов. Если для кода нет ни одной товарной строки —
+    берётся самое частое описание из любого типа операций.
+
+    Args:
+        df: аудированный DataFrame после ``classify_line_type``.
+        cfg: конфигурация с наборами сервисных кодов и словарём категорий.
+
+    Returns:
+        DataFrame с колонками: ``stock_code_norm``, ``description_variant_count``,
+        ``source_row_count``, ``first_seen_date``, ``last_seen_date``,
+        ``product_name_canonical``, ``is_service_code``, ``product_category``.
     """
     candidate_mask = (
         df["description_norm"].notna()
@@ -25,7 +40,7 @@ def build_product_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFra
     fallback_candidates = df.loc[candidate_mask].copy()
 
     def most_frequent_name(source: pd.DataFrame) -> pd.Series:
-        """Возвращает наиболее частое нормализованное имя для каждого кода товара."""
+        """Возвращает самое частое описание для каждого кода (при равенстве — алфавитное)."""
         if source.empty:
             return pd.Series(dtype="string")
         counts = (
@@ -77,7 +92,12 @@ def build_product_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFra
 
 
 def _classify_product_category(name: str, keywords_map: dict[str, list[str]]) -> str:
-    """Определяет категорию товара по ключевым словам в названии."""
+    """Определяет товарную категорию по ключевым словам в каноническом имени.
+
+    Проверяет слова из ``keywords_map`` как целые токены (word boundary).
+    Первое совпадение побеждает — порядок категорий в словаре задаёт приоритет.
+    Если ни одно ключевое слово не найдено, возвращает ``"Other"``.
+    """
     if not name or name == "UNKNOWN PRODUCT":
         return "Other"
     upper = name.upper()
@@ -89,7 +109,7 @@ def _classify_product_category(name: str, keywords_map: dict[str, list[str]]) ->
 
 
 def attach_product_names(df: pd.DataFrame, dim_product: pd.DataFrame) -> pd.DataFrame:
-    """Обогащает рабочий слой каноническими названиями из `DimProduct`."""
+    """Добавляет ``product_name_canonical`` из dim_product в рабочий слой через LEFT JOIN."""
     return df.merge(
         dim_product[["stock_code_norm", "product_name_canonical"]],
         on="stock_code_norm",
@@ -101,11 +121,26 @@ def build_customer_dimension(
     df: pd.DataFrame,
     cfg: PipelineConfig,
 ) -> pd.DataFrame:
-    """Строит измерение клиентов с метриками выручки и сегментацией.
+    """Строит измерение клиентов с предрассчитанными метриками и сегментацией.
 
-    Для идентифицированных клиентов агрегируются канал, даты активности,
-    число инвойсов, число стран и показатели выручки. Анонимные транзакции
-    складываются в отдельную агрегированную запись.
+    Для каждого идентифицированного клиента агрегируются: канал (мода),
+    даты активности, число инвойсов, число стран, суммарная выручка,
+    средний чек и сегмент (Top / Medium / Low по квартилям выручки).
+    Анонимные транзакции складываются в одну агрегированную строку
+    с ``customer_id = "ANONYMOUS"`` и ``customer_tier = "Anonymous"``.
+
+    Args:
+        df: аудированный DataFrame (с колонками ``is_duplicate``,
+            ``is_anonymous_customer``, ``line_type``, ``line_amount``).
+        cfg: конфигурация с метками ``anonymous_customer_label`` и
+            ``unknown_channel_label``.
+
+    Returns:
+        DataFrame с колонками: ``customer_id``, ``channel``,
+        ``first_invoice_date``, ``last_invoice_date``, ``invoice_count``,
+        ``country_count``, ``total_revenue``, ``total_quantity``,
+        ``order_count``, ``avg_order_value``, ``is_anonymous_customer``,
+        ``customer_tier``.
     """
     clean = df.loc[~df["is_duplicate"]].copy()
     sales_mask = clean["line_type"].eq("sale")
@@ -190,7 +225,12 @@ def build_customer_dimension(
 
 
 def _assign_customer_tier(revenue: pd.Series) -> pd.Series:
-    """Сегментирует клиентов на Top / Medium / Low по квартилям выручки."""
+    """Сегментирует клиентов по квартилям суммарной выручки.
+
+    - **Top** — выручка >= Q75 (верхние 25% клиентов).
+    - **Medium** — выручка в диапазоне [Q25, Q75).
+    - **Low** — выручка < Q25.
+    """
     tier = pd.Series("Low", index=revenue.index, dtype="string")
     q75 = revenue.quantile(0.75)
     q25 = revenue.quantile(0.25)
@@ -200,7 +240,12 @@ def _assign_customer_tier(revenue: pd.Series) -> pd.Series:
 
 
 def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
-    """Строит календарное измерение на дневом уровне по диапазону источника."""
+    """Строит календарное измерение на дневом уровне.
+
+    Диапазон: от минимальной до максимальной ``InvoiceDate`` в источнике.
+    Включает год, квартал, месяц, ``year_month``, флаги конца месяца
+    и неполного последнего месяца (октябрь 2011 обрывается 27-го).
+    """
     calendar = pd.DataFrame(
         {"date": pd.date_range(df["InvoiceDate"].min(), df["InvoiceDate"].max(), freq="D")}
     )
@@ -220,7 +265,11 @@ def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_country_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFrame:
-    """Строит справочник стран с региональной группировкой."""
+    """Строит справочник стран с региональной группировкой и флагом ``is_uk``.
+
+    Returns:
+        DataFrame с колонками: ``country_name``, ``region``, ``is_uk``.
+    """
     country_dim = (
         df[["country_norm"]]
         .drop_duplicates()
