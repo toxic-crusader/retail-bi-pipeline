@@ -55,6 +55,12 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     fact["is_uk"] = fact["country_norm"].eq("United Kingdom")
 
+    # Дневной ключ для связи с dim_date в DataLens
+    fact["invoice_date_day"] = fact["invoice_date"].dt.normalize()
+
+    # Единое имя FK для связи с dim_country.country_name
+    fact = fact.rename(columns={"country_norm": "country_name"})
+
     return fact
 
 
