@@ -73,6 +73,8 @@ def save_dataframe(df: pd.DataFrame, path: Path, *, export_csv: bool = False) ->
 
     Object-колонки приводятся к string перед записью, чтобы pyarrow
     не падал на смешанных типах в summary-таблицах.
+    В CSV булевы колонки записываются как ``0``/``1`` —
+    DataLens (ClickHouse) надёжно парсит только числовой формат.
     """
     ensure_directory(path.parent)
     safe_df = df.copy()
@@ -80,7 +82,10 @@ def save_dataframe(df: pd.DataFrame, path: Path, *, export_csv: bool = False) ->
         safe_df[column] = safe_df[column].astype("string")
     safe_df.to_parquet(path, index=False)
     if export_csv:
-        safe_df.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
+        csv_df = safe_df.copy()
+        for column in csv_df.select_dtypes(include=["bool", "boolean"]).columns:
+            csv_df[column] = csv_df[column].astype("Int64")
+        csv_df.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
 
 
 def save_json(payload: Any, path: Path) -> None:

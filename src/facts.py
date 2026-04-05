@@ -110,3 +110,93 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "fact_return_lines": fact_returns,
         "fact_service_lines": fact_service,
     }
+
+
+def build_daily_summary(
+    fact_tables: dict[str, pd.DataFrame],
+    dim_product: pd.DataFrame,
+) -> pd.DataFrame:
+    """Строит агрегированную сводку ``fact_daily_summary``.
+
+    Гранулярность: ``invoice_date × country_name × channel × product_category``.
+    Объединяет продажи, возвраты и сервисные операции в одной таблице,
+    чтобы в DataLens можно было считать кросс-метрики (доля возвратов,
+    net revenue и пр.) без мульти-датасетных формул.
+    """
+    group_keys = ["invoice_date", "country_name", "channel", "product_category"]
+
+    sales = fact_tables["fact_sales_lines"].copy()
+    returns = fact_tables["fact_return_lines"].copy()
+    service = fact_tables["fact_service_lines"].copy()
+
+    # Подтягиваем product_category из dim_product
+    cat_map = dim_product[["stock_code_norm", "product_category"]].drop_duplicates()
+    sales = sales.merge(cat_map, on="stock_code_norm", how="left")
+    returns = returns.merge(cat_map, on="stock_code_norm", how="left")
+    service = service.merge(cat_map, on="stock_code_norm", how="left")
+
+    sales["product_category"] = sales["product_category"].fillna("Other")
+    returns["product_category"] = returns["product_category"].fillna("Other")
+    service["product_category"] = service["product_category"].fillna("Other")
+
+    # Агрегация продаж
+    agg_sales = (
+        sales.groupby(group_keys, dropna=False)
+        .agg(
+            sales_amount=("line_amount", "sum"),
+            sales_orders=("invoice_id", "nunique"),
+            sales_customers=("customer_id", "nunique"),
+            sales_quantity=("quantity", "sum"),
+        )
+        .reset_index()
+    )
+
+    # Агрегация возвратов
+    agg_returns = (
+        returns.groupby(group_keys, dropna=False)
+        .agg(
+            returns_amount_abs=("line_amount", "sum"),
+            returns_orders=("invoice_id", "nunique"),
+        )
+        .reset_index()
+    )
+    agg_returns["returns_amount_abs"] = -agg_returns["returns_amount_abs"]
+
+    # Агрегация сервисных: доставка и скидки отдельно
+    shipping = service.loc[service["line_type"] == "shipping"]
+    discounts = service.loc[service["line_type"] == "discount"]
+
+    agg_shipping = (
+        shipping.groupby(group_keys, dropna=False)
+        .agg(shipping_amount=("line_amount", "sum"))
+        .reset_index()
+    )
+
+    agg_discounts = (
+        discounts.groupby(group_keys, dropna=False)
+        .agg(discounts_amount_abs=("line_amount", "sum"))
+        .reset_index()
+    )
+    agg_discounts["discounts_amount_abs"] = -agg_discounts["discounts_amount_abs"]
+
+    # Сборка: FULL OUTER MERGE — все три факта на равных
+    summary = agg_sales.merge(agg_returns, on=group_keys, how="outer")
+    summary = summary.merge(agg_shipping, on=group_keys, how="outer")
+    summary = summary.merge(agg_discounts, on=group_keys, how="outer")
+
+    # Заполняем пропуски нулями (срез мог быть только в одном из фактов)
+    fill_cols = [
+        "sales_amount", "sales_orders", "sales_customers", "sales_quantity",
+        "returns_amount_abs", "returns_orders",
+        "shipping_amount", "discounts_amount_abs",
+    ]
+    summary[fill_cols] = summary[fill_cols].fillna(0)
+
+    # Типизация
+    for col in ["sales_amount", "returns_amount_abs", "shipping_amount", "discounts_amount_abs"]:
+        summary[col] = summary[col].round(2)
+
+    for col in ["sales_orders", "sales_customers", "sales_quantity", "returns_orders"]:
+        summary[col] = summary[col].astype(int)
+
+    return summary.sort_values(group_keys).reset_index(drop=True)

@@ -21,7 +21,7 @@ from .dimensions import (
     build_product_dimension,
 )
 from .export import export_excel_workbook, export_summary, export_table_bundle
-from .facts import build_fact_tables
+from .facts import build_daily_summary, build_fact_tables
 from .io_utils import load_retail_data, prepare_project_dirs, save_dataframe
 from .normalization import apply_normalization
 from .qa import build_qa_artifacts
@@ -97,8 +97,12 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     LOGGER.info("Building fact tables")
     fact_tables = build_fact_tables(audited_df)
 
+    LOGGER.info("Building daily summary")
+    daily_summary = build_daily_summary(fact_tables, dim_product)
+
     processed_tables = {
         **fact_tables,
+        "fact_daily_summary": daily_summary,
         "dim_product": dim_product,
         "dim_customer": dim_customer,
         "dim_date": dim_date,
