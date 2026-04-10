@@ -193,6 +193,28 @@ def build_customer_dimension(
 
     customer_dim["customer_tier"] = _assign_customer_tier(customer_dim["total_revenue"])
 
+    # Основная страна клиента — мода country_norm из продаж
+    country_mode = (
+        identified_sales.groupby("customer_id_norm", dropna=False)["country_norm"]
+        .agg(lambda s: s.value_counts().index[0] if len(s) else None)
+        .rename("primary_country")
+    )
+    customer_dim["primary_country"] = customer_dim["customer_id"].map(country_mode)
+    # Fallback для клиентов без продаж — мода из всех операций
+    if customer_dim["primary_country"].isna().any():
+        country_fallback = (
+            identified.groupby("customer_id_norm", dropna=False)["country_norm"]
+            .agg(lambda s: s.value_counts().index[0] if len(s) else "UNKNOWN")
+            .rename("primary_country")
+        )
+        customer_dim["primary_country"] = customer_dim["primary_country"].fillna(
+            customer_dim["customer_id"].map(country_fallback)
+        )
+    customer_dim["primary_country"] = customer_dim["primary_country"].fillna("UNKNOWN")
+    customer_dim["is_uk_customer"] = (
+        customer_dim["primary_country"].eq("United Kingdom").astype(int)
+    )
+
     anon_sales = clean.loc[clean["is_anonymous_customer"] & sales_mask]
     anonymous = pd.DataFrame(
         [
@@ -223,6 +245,8 @@ def build_customer_dimension(
                 else 0.0,
                 "is_anonymous_customer": True,
                 "customer_tier": "Anonymous",
+                "primary_country": "UNKNOWN",
+                "is_uk_customer": 0,
             }
         ]
     )
@@ -230,6 +254,13 @@ def build_customer_dimension(
     # Даты без времени
     for col in ["first_invoice_date", "last_invoice_date"]:
         result[col] = pd.to_datetime(result[col]).dt.date
+
+    # has_returns: 1 если клиент есть в возвратах, 0 иначе (int для DataLens)
+    return_customers = set(
+        clean.loc[clean["line_type"].eq("return"), "customer_id_norm"].dropna().unique()
+    )
+    result["has_returns"] = result["customer_id"].isin(return_customers).astype("int8")
+
     return result
 
 
@@ -295,3 +326,43 @@ def build_country_dimension(df: pd.DataFrame, cfg: PipelineConfig) -> pd.DataFra
     country_dim["region"] = country_dim["country_name"].map(region_map).fillna("Other")
     country_dim["is_uk"] = country_dim["country_name"].eq("United Kingdom")
     return country_dim
+
+
+def build_category_metrics(
+    fact_tables: dict[str, pd.DataFrame],
+    dim_product: pd.DataFrame,
+) -> pd.DataFrame:
+    """Строит справочник категорийных метрик для чарта return rate.
+
+    Одна строка на каждую ``product_category`` из ``dim_product``.
+    Содержит суммарную выручку, суммарные возвраты и процент возвратов.
+    """
+    cat_map = dim_product[["stock_code_norm", "product_category"]].drop_duplicates()
+
+    sales = fact_tables["fact_sales_lines"].merge(cat_map, on="stock_code_norm", how="left")
+    sales["product_category"] = sales["product_category"].fillna("Other")
+
+    returns = fact_tables["fact_return_lines"].merge(cat_map, on="stock_code_norm", how="left")
+    returns["product_category"] = returns["product_category"].fillna("Other")
+
+    revenue_by_cat = sales.groupby("product_category")["line_amount"].sum()
+    returns_amount_by_cat = -returns.groupby("product_category")["line_amount"].sum()
+    returns_count_by_cat = returns.groupby("product_category").size()
+
+    result = pd.DataFrame({
+        "category_revenue_total": revenue_by_cat,
+        "category_returns_total": returns_amount_by_cat,
+        "category_returns_count": returns_count_by_cat,
+    }).fillna(0)
+
+    result["category_revenue_total"] = result["category_revenue_total"].round(2)
+    result["category_returns_total"] = result["category_returns_total"].round(2)
+    result["category_returns_count"] = result["category_returns_count"].astype(int)
+
+    result["return_rate_pct"] = (
+        result["category_returns_total"]
+        / result["category_revenue_total"].replace(0, np.nan)
+        * 100
+    ).fillna(0).round(2)
+
+    return result.reset_index().sort_values("product_category").reset_index(drop=True)
