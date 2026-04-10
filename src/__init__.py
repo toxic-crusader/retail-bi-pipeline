@@ -1,2 +1,1 @@
-# File: src/__init__.py
-"""Retail BI pipeline package."""
+"""Retail BI pipeline: audit-first обработка Retail.xlsx для Yandex DataLens."""

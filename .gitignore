@@ -1,45 +1,41 @@
-# Data (too large for git)
+# --- Data (слишком тяжёлое / генерируется pipeline) ---
 data/raw/
 data/interim/
 data/processed/
 data/qa/
 
-# Reports (generated)
+# --- Reports (генерируются при запуске) ---
 reports/
 
-# Python
+# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
 
-# IDE
+# --- IDE ---
 .vscode/
 .idea/
 
-# OS
+# --- OS ---
 Thumbs.db
 Desktop.ini
 
-# Notebook checkpoints
+# --- Jupyter ---
 .ipynb_checkpoints/
 
-# Claude config
+# --- Кэши и локальные настройки инструментов ---
 .claude/
-
-# Logs
+*.log
 console_log.txt
 
-# UV lock (reproducible via pyproject.toml)
+# --- UV lock (воспроизводимость через pyproject.toml) ---
 uv.lock
 
-# AI agent instructions (not part of project)
-codex_retail_pipeline_instruction_v3_clean.md
-
-# Backup copies
+# --- Бэкап-копии нотбука ---
 *- Copy.ipynb
 * - Copy.ipynb
 
-# Local notes (personal, not part of deliverable)
+# --- Локальные рабочие заметки (не часть поставки) ---
 local_notes/
