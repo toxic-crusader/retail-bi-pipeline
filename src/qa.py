@@ -119,5 +119,6 @@ def build_qa_artifacts(
             for key, value in audited_df["line_type"].value_counts(dropna=False).to_dict().items()
         },
         "fact_row_counts": {name: int(len(frame)) for name, frame in fact_tables.items()},
+        "cancelled_sale_rows": int((audited_df["line_type"] == "cancelled_sale").sum()),
     }
     return qa_tables, summary

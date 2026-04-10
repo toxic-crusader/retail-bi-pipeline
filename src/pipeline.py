@@ -11,10 +11,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .classification import classify_line_type
+from .classification import classify_line_type, reclassify_same_day_cancellations
 from .config import PipelineConfig
 from .dimensions import (
     attach_product_names,
+    build_category_metrics,
     build_country_dimension,
     build_customer_dimension,
     build_date_dimension,
@@ -80,6 +81,25 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     LOGGER.info("Classifying rows")
     audited_df = classify_line_type(normalized_df, cfg)
 
+    # Dedup ДО reclassify: асимметричные дубликаты в парах sale/return
+    # нарушат подсчёт n_sales == n_returns и часть реальных пар будет
+    # пропущена. Дедупликация в build_fact_tables остаётся как no-op.
+    LOGGER.info("Removing duplicates before reclassification")
+    dedup_before = len(audited_df)
+    audited_df = audited_df.loc[~audited_df["is_duplicate"]].copy()
+    LOGGER.info(
+        "Removed %s duplicate rows, %s remaining",
+        dedup_before - len(audited_df),
+        len(audited_df),
+    )
+
+    LOGGER.info("Reclassifying same-day cancellation pairs")
+    audited_df = reclassify_same_day_cancellations(audited_df)
+    LOGGER.info(
+        "Reclassified %s rows as cancelled_sale",
+        int((audited_df["line_type"] == "cancelled_sale").sum()),
+    )
+
     LOGGER.info("Building dimensions")
     dim_product = build_product_dimension(audited_df, cfg)
     audited_df = attach_product_names(audited_df, dim_product)
@@ -95,10 +115,13 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
     )
 
     LOGGER.info("Building fact tables")
-    fact_tables = build_fact_tables(audited_df)
+    fact_tables = build_fact_tables(audited_df, dim_country)
 
     LOGGER.info("Building daily summary")
-    daily_summary = build_daily_summary(fact_tables, dim_product)
+    daily_summary = build_daily_summary(fact_tables, dim_product, dim_country)
+
+    LOGGER.info("Building category metrics")
+    dim_category_metrics = build_category_metrics(fact_tables, dim_product)
 
     processed_tables = {
         **fact_tables,
@@ -107,6 +130,7 @@ def run_pipeline(cfg: PipelineConfig | None = None) -> PipelineRunResult:
         "dim_customer": dim_customer,
         "dim_date": dim_date,
         "dim_country": dim_country,
+        "dim_category_metrics": dim_category_metrics,
     }
 
     LOGGER.info("Building QA artifacts")
