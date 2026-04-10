@@ -85,7 +85,12 @@ def save_dataframe(df: pd.DataFrame, path: Path, *, export_csv: bool = False) ->
         csv_df = safe_df.copy()
         for column in csv_df.select_dtypes(include=["bool", "boolean"]).columns:
             csv_df[column] = csv_df[column].astype("Int64")
-        csv_df.to_csv(path.with_suffix(".csv"), index=False, encoding="utf-8-sig")
+        csv_df.to_csv(
+            path.with_suffix(".csv"),
+            index=False,
+            encoding="utf-8-sig",
+            float_format="%.2f",
+        )
 
 
 def save_json(payload: Any, path: Path) -> None:
