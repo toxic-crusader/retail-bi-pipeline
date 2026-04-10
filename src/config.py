@@ -97,6 +97,7 @@ class PipelineConfig:
         return (
             "sale",
             "return",
+            "cancelled_sale",
             "shipping",
             "discount",
             "manual_adjustment",
@@ -171,50 +172,95 @@ class PipelineConfig:
 
     @property
     def product_category_keywords(self) -> dict[str, list[str]]:
-        """Категория товара → список ключевых слов для классификации по описанию."""
+        """Категория товара → список ключевых слов для классификации по описанию.
+
+        Порядок категорий задаёт приоритет: более специфичные категории
+        (Lighting, Christmas, Toys) проверяются раньше общих (Home Decor,
+        Kitchen & Dining). Это нужно, потому что слова вроде CANDLE или
+        HOOK встречаются и в общих категориях, но если в имени товара есть
+        более конкретный маркер (T-LIGHT HOLDER, TEDDY), приоритет
+        должен отдаваться ему.
+        """
         return {
             "Christmas & Seasonal": [
-                "CHRISTMAS", "XMAS", "ADVENT", "SANTA", "SNOWMAN",
-                "REINDEER", "STOCKING", "BAUBLE", "HOLLY", "MISTLETOE",
-                "EASTER", "HALLOWEEN", "VALENTINE",
-            ],
-            "Kitchen & Dining": [
-                "MUG", "CUP", "PLATE", "BOWL", "SPOON", "FORK", "KNIFE",
-                "JUG", "TEAPOT", "BAKING", "CAKE", "COASTER", "PLACEMAT",
-                "NAPKIN", "TRAY", "LUNCH", "BOTTLE", "GLASS",
-            ],
-            "Bags & Accessories": [
-                "BAG", "SHOPPER", "TOTE", "PURSE", "WALLET", "BACKPACK",
-            ],
-            "Home Decor": [
-                "CANDLE", "CUSHION", "FRAME", "MIRROR", "VASE", "CLOCK",
-                "LAMP", "DOORMAT", "CURTAIN", "BUNTING", "GARLAND",
-                "HOOK", "HANGING", "DECORATION", "ORNAMENT", "WREATH",
-            ],
-            "Stationery": [
-                "PEN", "PENCIL", "NOTEBOOK", "CARD", "PAPER", "JOURNAL",
-                "DIARY", "BOOKMARK", "LETTER", "WRAP", "RIBBON", "TISSUE",
-                "ENVELOPE",
-            ],
-            "Toys & Games": [
-                "TOY", "GAME", "PUZZLE", "DOLL", "TEDDY", "ROBOT",
-                "RACING", "TRAIN", "SOLDIER", "PUPPET",
-            ],
-            "Garden": [
-                "GARDEN", "PLANT", "SEED", "GROW", "WATERING", "HERB",
-                "FLOWER POT",
-            ],
-            "Storage & Organization": [
-                "BOX", "TIN", "JAR", "BASKET", "CABINET", "CONTAINER",
-                "STORAGE", "DRAWER", "HOOK",
+                "CHRISTMAS", "XMAS", "ADVENT", "SANTA", "SNOWMAN", "SNOWMEN",
+                "REINDEER", "STOCKING", "BAUBLE", "BAUBLES", "HOLLY",
+                "MISTLETOE", "EASTER", "HALLOWEEN", "VALENTINE", "NATIVITY",
+                "NOEL", "YULE",
             ],
             "Lighting": [
-                "LIGHT", "LANTERN", "CANDLE HOLDER", "TEALIGHT", "LED",
-                "FAIRY LIGHT",
+                "LIGHT", "LIGHTS", "LAMP", "LAMPS", "LANTERN", "LANTERNS",
+                "TEALIGHT", "TEALIGHTS", "T-LIGHT", "LED", "CHANDELIER",
+                "NIGHTLIGHT", "NITELITE", "FAIRY LIGHT", "FAIRY LIGHTS",
+                "T-LIGHT HOLDER", "CANDLE HOLDER",
+            ],
+            "Toys & Games": [
+                "TOY", "TOYS", "GAME", "GAMES", "PUZZLE", "PUZZLES",
+                "DOLL", "DOLLS", "DOLLY", "TEDDY", "TEDDIES", "ROBOT",
+                "ROBOTS", "RACING", "TRAIN", "TRAINS", "SOLDIER",
+                "SOLDIERS", "PUPPET", "PUPPETS", "CHILDRENS", "KIDS",
+                "COLOURING", "BLOCKS", "RATTLE", "SPINNING TOP",
+                "SKIPPING", "PLAYING CARDS", "JIGSAW",
+            ],
+            "Kitchen & Dining": [
+                "MUG", "MUGS", "CUP", "CUPS", "PLATE", "PLATES", "BOWL",
+                "BOWLS", "SPOON", "SPOONS", "FORK", "FORKS", "KNIFE",
+                "KNIVES", "CUTLERY", "JUG", "JUGS", "TEAPOT", "TEAPOTS",
+                "TEACUP", "TEACUPS", "TEASET", "TEA SET", "BAKING", "CAKE",
+                "CAKES", "CAKESTAND", "CAKESTANDS", "COASTER", "COASTERS",
+                "PLACEMAT", "PLACEMATS", "NAPKIN", "NAPKINS", "TRAY",
+                "TRAYS", "LUNCH BAG", "LUNCH BOX", "BOTTLE", "BOTTLES",
+                "GLASS", "GLASSES", "SAUCER", "SAUCERS", "CAFETIERE",
+                "DINNER", "CHOPPING BOARD", "APRON", "APRONS", "TEA TOWEL",
+                "TEA TOWELS", "SPATULA", "WHISK", "LADLE", "SCOOP",
+                "GRATER", "COLANDER", "COOK", "WINE GLASS", "EGG CUP",
+            ],
+            "Bags & Accessories": [
+                "BAG", "BAGS", "SHOPPER", "SHOPPERS", "TOTE", "TOTES",
+                "PURSE", "PURSES", "WALLET", "WALLETS", "BACKPACK",
+                "BACKPACKS", "HANDBAG", "HANDBAGS", "UMBRELLA", "UMBRELLAS",
+                "PARASOL", "PARASOLS", "SCARF", "SCARVES", "HAT", "HATS",
+                "GLOVES", "KEYRING", "KEYRINGS", "KEY RING",
+            ],
+            "Stationery": [
+                "PEN", "PENS", "PENCIL", "PENCILS", "NOTEBOOK", "NOTEBOOKS",
+                "NOTE BOOK", "GREETING CARD", "GIFT CARD", "POSTCARD",
+                "JOURNAL", "JOURNALS", "DIARY", "DIARIES", "BOOKMARK",
+                "BOOKMARKS", "LETTER", "LETTERS", "GIFT WRAP", "GIFTWRAP",
+                "WRAPPING", "RIBBON", "RIBBONS", "TISSUE PAPER", "ENVELOPE",
+                "ENVELOPES", "STICKER", "STICKERS", "STAMP", "STAMPS",
+                "TAGS", "GIFT TAG", "RUBBER", "ERASER", "SHARPENER",
+                "PAPER CHAIN", "NOTE PAD",
+            ],
+            "Home Decor": [
+                "CANDLE", "CANDLES", "CUSHION", "CUSHIONS", "FRAME",
+                "FRAMES", "MIRROR", "MIRRORS", "VASE", "VASES", "CLOCK",
+                "CLOCKS", "DOORMAT", "CURTAIN", "CURTAINS", "BUNTING",
+                "GARLAND", "HOOK", "HOOKS", "HANGING", "DECORATION",
+                "DECORATIONS", "ORNAMENT", "ORNAMENTS", "WREATH", "WREATHS",
+                "SIGN", "SIGNS", "METAL SIGN", "WOODEN SIGN", "CHALKBOARD",
+                "BLACKBOARD", "MEMOBOARD", "PEG", "PEGS", "WICKER", "HEART",
+                "HEARTS", "DOORSTOP", "DOOR STOP", "HOLDER", "HOLDERS",
+                "WALL", "ARTWORK", "PICTURE", "PICTURES", "STATUE",
+                "FIGURINE",
+            ],
+            "Storage & Organization": [
+                "BOX", "BOXES", "TIN", "TINS", "JAR", "JARS", "BASKET",
+                "BASKETS", "CABINET", "CABINETS", "CONTAINER", "CONTAINERS",
+                "STORAGE", "DRAWER", "DRAWERS", "CHEST", "CRATE", "CRATES",
+                "HAMPER", "TRUNK", "BIN", "BINS", "POT", "POTS", "CANISTER",
+                "CANISTERS",
+            ],
+            "Garden": [
+                "GARDEN", "PLANT", "PLANTS", "SEED", "SEEDS", "GROW",
+                "GROWING", "WATERING", "HERB", "HERBS", "FLOWER POT",
+                "FLOWERPOT", "TROWEL", "SPADE", "GNOME", "GREENHOUSE",
+                "BIRD FEEDER", "BIRDHOUSE", "WIND CHIME", "WINDCHIME",
             ],
             "Textile & Fabric": [
-                "TOWEL", "APRON", "BLANKET", "THROW", "RUG", "FABRIC",
-                "COTTON", "LINEN", "FELT",
+                "TOWEL", "TOWELS", "BLANKET", "BLANKETS", "THROW", "THROWS",
+                "RUG", "RUGS", "FABRIC", "FABRICS", "COTTON", "LINEN",
+                "FELT", "KNITTED", "WOOL", "WOOLLY", "QUILT", "QUILTS",
             ],
         }
 
