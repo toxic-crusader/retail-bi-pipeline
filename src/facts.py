@@ -1,4 +1,4 @@
-"""Построение факт-таблиц: продажи, в��звраты, сервисные строки.
+"""Построение факт-таблиц: продажи, возвраты, сервисные строки.
 
 Модуль разделяет аудированный слой на три факта по ``line_type``,
 переименовывает колонки в BI-совместимый формат и добавляет
@@ -27,10 +27,12 @@ FACT_COLUMNS = [
 ]
 
 
-def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
+def _prepare_fact_frame(df: pd.DataFrame, dim_country: pd.DataFrame) -> pd.DataFrame:
     """Выбирает нужные колонки и переименовывает их в BI-формат.
 
-    Добавляет ``is_uk`` как быстрый фильтр UK vs International.
+    Добавляет ``is_uk``, ``year_month`` и ``region`` как raw-поля для
+    кросс-фильтрации DataLens (алиасы требуют физические поля на фактах,
+    а не UI-группировки).
     """
     fact = df[FACT_COLUMNS].copy()
     fact = fact.rename(
@@ -44,6 +46,8 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
         }
     )
 
+    # year_month формируется ДО приведения даты к .date
+    fact["year_month"] = fact["invoice_date"].dt.strftime("%Y-%m")
     # Дата без времени — в источнике время всегда 00:00:00
     fact["invoice_date"] = fact["invoice_date"].dt.date
 
@@ -55,6 +59,15 @@ def _prepare_fact_frame(df: pd.DataFrame) -> pd.DataFrame:
 
     # Единое имя FK для связи с dim_country.country_name
     fact = fact.rename(columns={"country_norm": "country_name"})
+
+    # region через lookup из dim_country с integrity-check
+    country_to_region = dict(zip(dim_country["country_name"], dim_country["region"]))
+    missing = set(fact["country_name"].dropna().unique()) - set(country_to_region)
+    if missing:
+        raise ValueError(
+            f"country_name values missing in dim_country: {sorted(missing)}"
+        )
+    fact["region"] = fact["country_name"].map(country_to_region)
 
     return fact
 
@@ -76,8 +89,8 @@ def _add_invoice_aggregates(fact: pd.DataFrame) -> pd.DataFrame:
     return fact.merge(inv_agg, on="invoice_id", how="left")
 
 
-def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Строит три факт-таблицы из аудир��ванного слоя.
+def build_fact_tables(df: pd.DataFrame, dim_country: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Строит три факт-таблицы из аудированного слоя.
 
     Перед разделением снимаются полные дубликаты (``is_duplicate``).
     Строки распределяются по ``line_type``:
@@ -87,7 +100,7 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     - ``fact_service_lines`` — всё остальное (shipping, discount, bad_debt и др.).
 
     Args:
-        df: ��удированный DataFrame с колонками ``is_duplicate`` и ``line_type``.
+        df: аудированный DataFrame с колонками ``is_duplicate`` и ``line_type``.
 
     Returns:
         Словарь ``{имя_таблицы: DataFrame}`` с тремя фактами.
@@ -95,7 +108,7 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         ``invoice_total``, ``invoice_item_count``).
     """
     deduped = df.loc[~df["is_duplicate"]].copy()
-    fact = _prepare_fact_frame(deduped)
+    fact = _prepare_fact_frame(deduped, dim_country)
 
     fact_sales = fact.loc[fact["line_type"].eq("sale")].reset_index(drop=True)
     fact_returns = fact.loc[fact["line_type"].eq("return")].reset_index(drop=True)
@@ -115,6 +128,7 @@ def build_fact_tables(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 def build_daily_summary(
     fact_tables: dict[str, pd.DataFrame],
     dim_product: pd.DataFrame,
+    dim_country: pd.DataFrame,
 ) -> pd.DataFrame:
     """Строит агрегированную сводку ``fact_daily_summary``.
 
@@ -179,24 +193,59 @@ def build_daily_summary(
     )
     agg_discounts["discounts_amount_abs"] = -agg_discounts["discounts_amount_abs"]
 
-    # Сборка: FULL OUTER MERGE — все три факта на равных
+    # Агрегация отменённых продаж (same-day cancellations)
+    cancelled = service.loc[
+        (service["line_type"] == "cancelled_sale") & (service["line_amount"] > 0)
+    ]
+
+    agg_cancelled = (
+        cancelled.groupby(group_keys, dropna=False)
+        .agg(
+            cancelled_sales_amount=("line_amount", "sum"),
+            cancelled_sales_orders=("invoice_id", "nunique"),
+        )
+        .reset_index()
+    )
+
+    # Сборка: FULL OUTER MERGE — все факты на равных
     summary = agg_sales.merge(agg_returns, on=group_keys, how="outer")
     summary = summary.merge(agg_shipping, on=group_keys, how="outer")
     summary = summary.merge(agg_discounts, on=group_keys, how="outer")
+    summary = summary.merge(agg_cancelled, on=group_keys, how="outer")
 
     # Заполняем пропуски нулями (срез мог быть только в одном из фактов)
     fill_cols = [
         "sales_amount", "sales_orders", "sales_customers", "sales_quantity",
         "returns_amount_abs", "returns_orders",
         "shipping_amount", "discounts_amount_abs",
+        "cancelled_sales_amount", "cancelled_sales_orders",
     ]
     summary[fill_cols] = summary[fill_cols].fillna(0)
 
     # Типизация
-    for col in ["sales_amount", "returns_amount_abs", "shipping_amount", "discounts_amount_abs"]:
+    for col in [
+        "sales_amount", "returns_amount_abs",
+        "shipping_amount", "discounts_amount_abs",
+        "cancelled_sales_amount",
+    ]:
         summary[col] = summary[col].round(2)
 
-    for col in ["sales_orders", "sales_customers", "sales_quantity", "returns_orders"]:
+    for col in [
+        "sales_orders", "sales_customers", "sales_quantity", "returns_orders",
+        "cancelled_sales_orders",
+    ]:
         summary[col] = summary[col].astype(int)
+
+    # Raw-поля для кросс-фильтрации DataLens
+    summary["year_month"] = pd.to_datetime(summary["invoice_date"]).dt.strftime("%Y-%m")
+
+    country_to_region = dict(zip(dim_country["country_name"], dim_country["region"]))
+    missing = set(summary["country_name"].dropna().unique()) - set(country_to_region)
+    if missing:
+        raise ValueError(
+            f"country_name values missing in dim_country: {sorted(missing)}"
+        )
+    summary["region"] = summary["country_name"].map(country_to_region)
+    summary["is_uk"] = summary["country_name"].eq("United Kingdom")
 
     return summary.sort_values(group_keys).reset_index(drop=True)
